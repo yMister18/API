@@ -1,0 +1,525 @@
+// Warpion API — schema da base de dados
+// Os nomes de campo espelham as interfaces TypeScript do frontend sempre que possível.
+// Desvios estão assinalados com comentários "FRONTEND-NOTE".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum StaffRole {
+  Fundador
+  Administrador
+  Moderador
+  Builder
+  Suporte
+}
+
+enum ItemRarity {
+  comum
+  raro
+  epico
+  lendario
+}
+
+enum TicketStatus {
+  aberto
+  em_progresso
+  resolvido
+  fechado
+}
+
+enum TicketMessageAuthor {
+  user
+  staff
+  ashion
+}
+
+enum ShopTier {
+  vip
+  cosmetic
+  pet
+  key
+  bundle
+}
+
+enum BanStatus {
+  ativo
+  expirado
+  revogado
+}
+
+enum EventStatus {
+  ativo
+  agendado
+  terminado
+}
+
+enum OrderStatus {
+  pendente
+  pago
+  entregue
+  falhado
+  cancelado
+}
+
+// ---------------------------------------------------------------------------
+// Utilizador / Dashboard
+// ---------------------------------------------------------------------------
+
+model User {
+  id                String    @id @default(cuid())
+  discordId         String    @unique
+  username          String
+  avatarUrl         String?
+  minecraftUsername String?
+
+  // Staff — null significa jogador normal
+  staffRole StaffRole?
+
+  // PlayerProfile
+  level        Int      @default(1)
+  xp           Int      @default(0)
+  xpToNextLevel Int     @default(1000)
+  coins        Int      @default(0)
+  streakDays   Int      @default(0)
+  isOnline     Boolean  @default(false)
+  lastSeenAt   DateTime?
+
+  joinedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  missions      Mission[]
+  achievements  UserAchievement[]
+  activity      ActivityEntry[]
+  inventory     InventoryItem[]
+  notifications NotificationItem[]
+  stats         Stat[]
+
+  friendsInitiated Friendship[] @relation("FriendshipUser")
+  friendsReceived  Friendship[] @relation("FriendshipFriend")
+
+  forumTopics  ForumTopic[]
+  forumReplies ForumReply[]
+
+  tickets        Ticket[]
+  ticketMessages TicketMessage[]
+
+  cartItems CartItem[]
+  orders    Order[]
+
+  @@map("users")
+}
+
+model Mission {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  progress    Int      @default(0)
+  target      Int
+  reward      String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@map("missions")
+}
+
+// Catálogo de conquistas possíveis (definição global)
+model Achievement {
+  id          String @id @default(cuid())
+  key         String @unique
+  title       String
+  description String
+  icon        String
+  order       Int    @default(0)
+
+  unlockedBy UserAchievement[]
+
+  @@map("achievements")
+}
+
+// Estado de desbloqueio por utilizador
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  unlocked      Boolean     @default(false)
+  unlockedAt    DateTime?
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
+
+model ActivityEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String
+  icon      String
+  timestamp DateTime @default(now())
+
+  @@index([userId, timestamp])
+  @@map("activity_entries")
+}
+
+model InventoryItem {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  rarity    ItemRarity
+  icon      String
+  createdAt DateTime   @default(now())
+
+  @@index([userId])
+  @@map("inventory_items")
+}
+
+// Amizade bidirecional; "online" é derivado de User.isOnline no momento da leitura
+model Friendship {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation("FriendshipUser", fields: [userId], references: [id], onDelete: Cascade)
+  friendId  String
+  friend    User     @relation("FriendshipFriend", fields: [friendId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, friendId])
+  @@index([friendId])
+  @@map("friendships")
+}
+
+model NotificationItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String
+  icon      String
+  read      Boolean  @default(false)
+  timestamp DateTime @default(now())
+
+  @@index([userId, timestamp])
+  @@map("notifications")
+}
+
+model Stat {
+  id     String  @id @default(cuid())
+  userId String
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label  String
+  value  Int
+  suffix String?
+  icon   String
+  order  Int     @default(0)
+
+  @@index([userId])
+  @@map("stats")
+}
+
+// ---------------------------------------------------------------------------
+// Fórum
+// ---------------------------------------------------------------------------
+
+model ForumCategory {
+  id          String @id @default(cuid())
+  slug        String @unique
+  name        String
+  description String
+  icon        String
+  order       Int    @default(0)
+
+  topics ForumTopic[]
+
+  @@map("forum_categories")
+}
+
+model ForumTopic {
+  id         String   @id @default(cuid())
+  categoryId String
+  category   ForumCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  title      String
+  content    String
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+  pinned     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  replies ForumReply[]
+
+  @@index([categoryId])
+  @@map("forum_topics")
+}
+
+model ForumReply {
+  id        String     @id @default(cuid())
+  topicId   String
+  topic     ForumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  content   String
+  authorId  String
+  author    User       @relation(fields: [authorId], references: [id])
+  createdAt DateTime   @default(now())
+
+  @@index([topicId])
+  @@map("forum_replies")
+}
+
+// ---------------------------------------------------------------------------
+// Suporte / Tickets
+// ---------------------------------------------------------------------------
+
+model Ticket {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   String
+  category  String
+  status    TicketStatus @default(aberto)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  messages TicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("tickets")
+}
+
+model TicketMessage {
+  id           String              @id @default(cuid())
+  ticketId     String
+  ticket       Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author       TicketMessageAuthor
+  authorName   String
+  authorUserId String?
+  authorUser   User?               @relation(fields: [authorUserId], references: [id])
+  content      String
+  createdAt    DateTime            @default(now())
+
+  @@index([ticketId])
+  @@map("ticket_messages")
+}
+
+// ---------------------------------------------------------------------------
+// Loja / Carrinho / Encomendas
+// ---------------------------------------------------------------------------
+
+// FRONTEND-NOTE: `price` (string "€9.99") nos mocks passa a `priceCents` (Int) + `currency`.
+// O frontend deve formatar o valor. Idem para `originalPrice` -> `originalPriceCents`.
+model ShopItem {
+  id                String   @id @default(cuid())
+  tier              ShopTier
+  name              String
+  priceCents        Int
+  originalPriceCents Int?
+  currency          String   @default("EUR")
+  description       String
+  perks             String[]
+  featured          Boolean  @default(false)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+  deliveries PendingDelivery[]
+
+  @@map("shop_items")
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      ShopItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, itemId])
+  @@map("cart_items")
+}
+
+// Encomenda criada em /checkout — no MVP fica "pendente" com um checkoutUrl fictício.
+model Order {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        OrderStatus @default(pendente)
+  totalCents    Int
+  currency      String      @default("EUR")
+  checkoutUrl   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  items     OrderItem[]
+  deliveries PendingDelivery[]
+
+  @@index([userId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId     String
+  item       ShopItem @relation(fields: [itemId], references: [id])
+  quantity   Int
+  priceCents Int
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// Fila de entregas para o plugin do servidor Minecraft consumir/confirmar
+// via POST /internal/purchase-fulfilled.
+model PendingDelivery {
+  id          String    @id @default(cuid())
+  orderId     String
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        ShopItem  @relation(fields: [itemId], references: [id])
+  minecraftUsername String?
+  delivered   Boolean   @default(false)
+  deliveredAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([orderId])
+  @@index([delivered])
+  @@map("pending_deliveries")
+}
+
+// ---------------------------------------------------------------------------
+// Conteúdo da comunidade (público, leitura)
+// ---------------------------------------------------------------------------
+
+model NewsArticle {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  excerpt     String
+  content     String   @default("")
+  category    String
+  author      String
+  coverAccent String
+  publishedAt DateTime @default(now())
+
+  @@map("news_articles")
+}
+
+model EventItem {
+  id          String      @id @default(cuid())
+  title       String
+  description String
+  startsAt    DateTime
+  endsAt      DateTime
+  // status pode ser derivado de startsAt/endsAt em runtime; guardado aqui
+  // para permitir override manual (ex: cancelar/terminar antecipadamente).
+  status      EventStatus?
+
+  @@map("events")
+}
+
+model TeamMember {
+  id     String    @id @default(cuid())
+  name   String
+  role   StaffRole
+  initials String
+  accent String
+  online Boolean   @default(false)
+  order  Int       @default(0)
+
+  @@map("team_members")
+}
+
+// Sincronizado do servidor Minecraft via POST /internal/sync/rankings
+model RankPlayerEntry {
+  id      String @id @default(cuid())
+  type    String // "players" | "wealth"
+  rank    Int
+  name    String
+  value   String
+  guild   String?
+  syncedAt DateTime @default(now())
+
+  @@index([type, rank])
+  @@map("rank_player_entries")
+}
+
+model RankClanEntry {
+  id       String @id @default(cuid())
+  rank     Int
+  name     String
+  tag      String
+  members  Int
+  power    String
+  syncedAt DateTime @default(now())
+
+  @@index([rank])
+  @@map("rank_clan_entries")
+}
+
+model GalleryImage {
+  id       String @id @default(cuid())
+  title    String
+  category String
+  accent   String
+  order    Int    @default(0)
+
+  @@map("gallery_images")
+}
+
+model FAQItem {
+  id       String @id @default(cuid())
+  question String
+  answer   String
+  order    Int    @default(0)
+
+  @@map("faq_items")
+}
+
+model BanCase {
+  id       String    @id @default(cuid())
+  player   String
+  reason   String
+  duration String
+  staff    String
+  date     DateTime  @default(now())
+  status   BanStatus @default(ativo)
+
+  @@index([status])
+  @@map("ban_cases")
+}
+
+model VoteSite {
+  id     String @id @default(cuid())
+  name   String
+  reward String
+  href   String
+  order  Int    @default(0)
+
+  @@map("vote_sites")
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  message   String
+  createdAt DateTime @default(now())
+
+  @@map("contact_messages")
+}
