@@ -1,8 +1,9 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import { ZodError } from "zod";
 
 import { env, corsOrigins } from "./config/env";
 import authPlugin from "./plugins/auth";
@@ -18,13 +19,16 @@ import internalRoutes from "./modules/internal/internal.routes";
 
 export function buildApp() {
   const app = Fastify({
-    logger: {
-      level: env.NODE_ENV === "development" ? "info" : "warn",
-      transport:
-        env.NODE_ENV === "development"
-          ? { target: "pino-pretty", options: { translateTime: "HH:MM:ss", ignore: "pid,hostname" } }
-          : undefined,
-    },
+    logger:
+      env.NODE_ENV === "test"
+        ? false
+        : {
+            level: env.NODE_ENV === "development" ? "info" : "warn",
+            transport:
+              env.NODE_ENV === "development"
+                ? { target: "pino-pretty", options: { translateTime: "HH:MM:ss", ignore: "pid,hostname" } }
+                : undefined,
+          },
   });
 
   app.register(cors, {
@@ -34,6 +38,33 @@ export function buildApp() {
 
   app.register(rateLimit, {
     global: false,
+  });
+
+  // Limita tentativas de login Discord (start + callback) contra abuso/brute-force.
+  app.after(() => {
+    const discordLoginLimiter = app.rateLimit({ max: 10, timeWindow: "1 minute" });
+    app.addHook("onRequest", async (request, reply) => {
+      if (request.url.startsWith("/auth/discord")) {
+        await discordLoginLimiter.call(app, request, reply);
+      }
+    });
+  });
+
+  app.setErrorHandler(function (this: FastifyInstance, error: FastifyError | ZodError, request, reply) {
+    if (error instanceof ZodError) {
+      return reply.code(400).send({
+        message: "Dados inválidos.",
+        issues: error.flatten().fieldErrors,
+      });
+    }
+
+    const statusCode = error.statusCode ?? 500;
+    if (statusCode >= 500) {
+      request.log.error(error);
+      return reply.code(statusCode).send({ message: "Erro interno do servidor." });
+    }
+
+    return reply.code(statusCode).send({ message: error.message });
   });
 
   app.register(swagger, {

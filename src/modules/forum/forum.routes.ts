@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { initialsFromName } from "../../lib/initials";
+import { parsePagination } from "../../lib/pagination";
 
 const createTopicSchema = z.object({
   title: z.string().min(3).max(200),
@@ -49,20 +50,29 @@ export default async function forumRoutes(fastify: FastifyInstance) {
       });
       if (!category) return reply.code(404).send({ message: "Categoria não encontrada." });
 
-      const topics = await prisma.forumTopic.findMany({
-        where: { categoryId: category.id },
-        include: {
-          author: true,
-          _count: { select: { replies: true } },
-        },
-        orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
-      });
+      const { page, pageSize, skip, take } = parsePagination(
+        request.query as { page?: number; pageSize?: number }
+      );
+
+      const [topics, total] = await Promise.all([
+        prisma.forumTopic.findMany({
+          where: { categoryId: category.id },
+          include: {
+            author: true,
+            _count: { select: { replies: true } },
+          },
+          orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
+          skip,
+          take,
+        }),
+        prisma.forumTopic.count({ where: { categoryId: category.id } }),
+      ]);
 
       // FRONTEND-NOTE: esta listagem não inclui `replies` completas (só
       // metadados de preview via `replyCount`), ao contrário do
       // ForumTopic completo devolvido em GET /categories/:slug/topics/:topicId.
-      return reply.send(
-        topics.map((t) => ({
+      return reply.send({
+        data: topics.map((t) => ({
           id: t.id,
           categorySlug: category.slug,
           title: t.title,
@@ -73,8 +83,11 @@ export default async function forumRoutes(fastify: FastifyInstance) {
           content: t.content,
           replies: [],
           replyCount: t._count.replies,
-        }))
-      );
+        })),
+        page,
+        pageSize,
+        total,
+      });
     }
   );
 

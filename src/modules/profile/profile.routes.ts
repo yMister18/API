@@ -42,17 +42,26 @@ export default async function profileRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get("/achievements", async (request, reply) => {
-    const achievements = await prisma.achievement.findMany({
-      orderBy: { order: "asc" },
-      include: {
-        unlockedBy: {
-          where: { userId: request.currentUser!.id },
-        },
-      },
-    });
+    const { page, pageSize, skip, take } = parsePagination(
+      request.query as { page?: number; pageSize?: number }
+    );
 
-    return reply.send(
-      achievements.map((a) => {
+    const [achievements, total] = await Promise.all([
+      prisma.achievement.findMany({
+        orderBy: { order: "asc" },
+        skip,
+        take,
+        include: {
+          unlockedBy: {
+            where: { userId: request.currentUser!.id },
+          },
+        },
+      }),
+      prisma.achievement.count(),
+    ]);
+
+    return reply.send({
+      data: achievements.map((a) => {
         const progress = a.unlockedBy[0];
         return {
           id: a.id,
@@ -62,8 +71,11 @@ export default async function profileRoutes(fastify: FastifyInstance) {
           unlocked: progress?.unlocked ?? false,
           unlockedAt: progress?.unlockedAt?.toISOString(),
         };
-      })
-    );
+      }),
+      page,
+      pageSize,
+      total,
+    });
   });
 
   fastify.get("/activity", async (request, reply) => {
@@ -108,14 +120,26 @@ export default async function profileRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get("/inventory", async (request, reply) => {
-    const items = await prisma.inventoryItem.findMany({
-      where: { userId: request.currentUser!.id },
-      orderBy: { createdAt: "desc" },
-    });
-
-    return reply.send(
-      items.map((i) => ({ id: i.id, name: i.name, rarity: i.rarity, icon: i.icon }))
+    const { page, pageSize, skip, take } = parsePagination(
+      request.query as { page?: number; pageSize?: number }
     );
+
+    const [items, total] = await Promise.all([
+      prisma.inventoryItem.findMany({
+        where: { userId: request.currentUser!.id },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take,
+      }),
+      prisma.inventoryItem.count({ where: { userId: request.currentUser!.id } }),
+    ]);
+
+    return reply.send({
+      data: items.map((i) => ({ id: i.id, name: i.name, rarity: i.rarity, icon: i.icon })),
+      page,
+      pageSize,
+      total,
+    });
   });
 
   fastify.get("/friends", async (request, reply) => {
@@ -139,20 +163,41 @@ export default async function profileRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get("/notifications", async (request, reply) => {
-    const notifications = await prisma.notificationItem.findMany({
-      where: { userId: request.currentUser!.id },
-      orderBy: { timestamp: "desc" },
-    });
+    const { page, pageSize, skip, take } = parsePagination(
+      request.query as { page?: number; pageSize?: number }
+    );
 
-    return reply.send(
-      notifications.map((n) => ({
+    const [notifications, total] = await Promise.all([
+      prisma.notificationItem.findMany({
+        where: { userId: request.currentUser!.id },
+        orderBy: { timestamp: "desc" },
+        skip,
+        take,
+      }),
+      prisma.notificationItem.count({ where: { userId: request.currentUser!.id } }),
+    ]);
+
+    return reply.send({
+      data: notifications.map((n) => ({
         id: n.id,
         message: n.message,
         timestamp: n.timestamp.toISOString(),
         read: n.read,
         icon: n.icon,
-      }))
-    );
+      })),
+      page,
+      pageSize,
+      total,
+    });
+  });
+
+  fastify.post("/notifications/read-all", async (request, reply) => {
+    const result = await prisma.notificationItem.updateMany({
+      where: { userId: request.currentUser!.id, read: false },
+      data: { read: true },
+    });
+
+    return reply.send({ ok: true, count: result.count });
   });
 
   fastify.patch<{ Params: { id: string } }>("/notifications/:id", async (request, reply) => {

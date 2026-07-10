@@ -1,11 +1,23 @@
+import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import rateLimit from "@fastify/rate-limit";
 import { z } from "zod";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 
+function isValidInternalApiKey(key: unknown): key is string {
+  if (typeof key !== "string") return false;
+
+  const provided = Buffer.from(key);
+  const expected = Buffer.from(env.INTERNAL_API_KEY);
+  if (provided.length !== expected.length) return false;
+
+  return timingSafeEqual(provided, expected);
+}
+
 async function requireInternalApiKey(request: FastifyRequest, reply: FastifyReply) {
   const key = request.headers["x-internal-api-key"];
-  if (key !== env.INTERNAL_API_KEY) {
+  if (!isValidInternalApiKey(key)) {
     return reply.code(401).send({ message: "Chave de API interna inválida." });
   }
 }
@@ -41,6 +53,8 @@ const onlineStatusSchema = z.object({
 // Rotas consumidas pelo plugin do servidor Minecraft. Protegidas por
 // header `x-internal-api-key` (não fazem parte da sessão de utilizador).
 export default async function internalRoutes(fastify: FastifyInstance) {
+  await fastify.register(rateLimit, { max: 120, timeWindow: "1 minute" });
+
   fastify.addHook("preHandler", requireInternalApiKey);
 
   fastify.post("/purchase-fulfilled", async (request, reply) => {
