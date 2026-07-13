@@ -9,6 +9,7 @@ import { env, corsOrigins } from "./config/env";
 import authPlugin from "./plugins/auth";
 
 import authRoutes from "./modules/auth/auth.routes";
+import adminRoutes from "./modules/admin/admin.routes";
 import profileRoutes from "./modules/profile/profile.routes";
 import forumRoutes from "./modules/forum/forum.routes";
 import ticketRoutes from "./modules/tickets/tickets.routes";
@@ -86,6 +87,7 @@ export function buildApp() {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.register(authRoutes, { prefix: "/auth" });
+  app.register(adminRoutes, { prefix: "/admin" });
   app.register(profileRoutes, { prefix: "/me" });
   app.register(forumRoutes, { prefix: "/forum" });
   app.register(ticketRoutes);

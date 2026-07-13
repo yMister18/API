@@ -10,6 +10,10 @@ declare module "fastify" {
       request: FastifyRequest,
       reply: FastifyReply
     ) => Promise<void>;
+    requireAdminStaff: (
+      request: FastifyRequest,
+      reply: FastifyReply
+    ) => Promise<void>;
     discordOAuth2: OAuth2Namespace;
   }
 

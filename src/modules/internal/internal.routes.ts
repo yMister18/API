@@ -4,6 +4,7 @@ import rateLimit from "@fastify/rate-limit";
 import { z } from "zod";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
+import { syncDiscordVipTier } from "../../lib/discordRoleSync";
 
 function isValidInternalApiKey(key: unknown): key is string {
   if (typeof key !== "string") return false;
@@ -62,6 +63,7 @@ export default async function internalRoutes(fastify: FastifyInstance) {
 
     const delivery = await prisma.pendingDelivery.findUnique({
       where: { id: body.deliveryId },
+      include: { item: true, order: true },
     });
     if (!delivery) return reply.code(404).send({ message: "Entrega não encontrada." });
 
@@ -79,6 +81,25 @@ export default async function internalRoutes(fastify: FastifyInstance) {
         where: { id: delivery.orderId },
         data: { status: "entregue" },
       });
+    }
+
+    // Item de rank VIP entregue: atribui o vipTier ao comprador e sincroniza
+    // o cargo no Discord. Best-effort — nunca falha a entrega em si.
+    if (delivery.item.vipTier) {
+      const buyer = await prisma.user.findUnique({ where: { id: delivery.order.userId } });
+      if (buyer && buyer.vipTier !== delivery.item.vipTier) {
+        const previousVipTier = buyer.vipTier;
+        const nextVipTier = delivery.item.vipTier;
+
+        await prisma.user.update({
+          where: { id: buyer.id },
+          data: { vipTier: nextVipTier },
+        });
+
+        syncDiscordVipTier(request.log, buyer.discordId, previousVipTier, nextVipTier).catch(
+          (err) => request.log.error(err, "Falha ao sincronizar vipTier com o Discord")
+        );
+      }
     }
 
     return reply.code(200).send({ ok: true });

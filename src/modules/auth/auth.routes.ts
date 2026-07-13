@@ -15,7 +15,14 @@ function discordAvatarUrl(discordUser: DiscordUserResponse): string {
     const ext = discordUser.avatar.startsWith("a_") ? "gif" : "png";
     return `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.${ext}`;
   }
-  const defaultIndex = Number(discordUser.discriminator || "0") % 5;
+  // Utilizadores no novo sistema de username (discriminator "0") usam o índice
+  // baseado no snowflake do ID; contas legadas com discriminator continuam a
+  // usar o cálculo antigo. Ver https://discord.com/developers/docs/reference#image-formatting
+  const defaultIndex =
+    discordUser.discriminator && discordUser.discriminator !== "0"
+      ? Number(discordUser.discriminator) % 5
+      : Number((BigInt(discordUser.id) >> 22n) % 6n);
+
   return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
 }
 

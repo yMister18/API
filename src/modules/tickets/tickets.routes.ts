@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import type { Ticket, TicketMessage, TicketStatus } from "@prisma/client";
+import { sendDiscordDM } from "../../lib/discordBot";
+import { env } from "../../config/env";
 
 export const TICKET_CATEGORIES = [
   "Pagamentos",
@@ -101,7 +103,10 @@ export default async function ticketRoutes(fastify: FastifyInstance) {
     "/tickets/:id/messages",
     { preHandler: fastify.authenticate },
     async (request, reply) => {
-      const ticket = await prisma.ticket.findUnique({ where: { id: request.params.id } });
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: request.params.id },
+        include: { user: true },
+      });
       if (!ticket) return reply.code(404).send({ message: "Ticket não encontrado." });
 
       const user = request.currentUser!;
@@ -126,6 +131,16 @@ export default async function ticketRoutes(fastify: FastifyInstance) {
       // Reabre o ticket automaticamente se o dono responder a um ticket resolvido/fechado.
       if (isOwner && !isStaff && (ticket.status === "resolvido" || ticket.status === "fechado")) {
         await prisma.ticket.update({ where: { id: ticket.id }, data: { status: "aberto" } });
+      }
+
+      // Notifica o dono via DM do Discord quando é o staff a responder.
+      // Best-effort: uma falha no Discord (bot não configurado, DMs fechadas,
+      // etc.) não deve fazer a resposta ao ticket falhar.
+      if (isStaff && !isOwner) {
+        sendDiscordDM(
+          ticket.user.discordId,
+          `O teu ticket "${ticket.subject}" tem uma resposta nova. Consulta em ${env.FRONTEND_URL}/tickets/${ticket.id}`
+        ).catch((err) => request.log.error(err, "Falha ao notificar ticket via Discord DM"));
       }
 
       return reply.code(201).send({

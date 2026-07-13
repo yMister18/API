@@ -60,4 +60,19 @@ export default fp(async function authPlugin(fastify: FastifyInstance) {
       return reply.code(403).send({ message: "Sem permissão para esta ação." });
     }
   });
+
+  // Restrito a OWNER/DEVELOPER — para ações sensíveis como gerir o staffRole
+  // de outros utilizadores (que qualquer staff, ex. HELPER, não deveria poder
+  // fazer).
+  fastify.decorate("requireAdminStaff", async (request, reply) => {
+    if (!request.currentUser) {
+      return reply.code(401).send({ message: "Não autenticado." });
+    }
+    if (
+      request.currentUser.staffRole !== "OWNER" &&
+      request.currentUser.staffRole !== "DEVELOPER"
+    ) {
+      return reply.code(403).send({ message: "Sem permissão para esta ação." });
+    }
+  });
 });

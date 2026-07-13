@@ -16,11 +16,35 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 enum StaffRole {
-  Fundador
-  Administrador
-  Moderador
-  Builder
-  Suporte
+  OWNER
+  DEVELOPER
+  MANAGER
+  ADMIN
+  BUILDER
+  MOD
+  HELPER
+}
+
+// Eixos independentes do staffRole — um utilizador pode ser membro normal
+// (nenhum destes definido) e ter, em simultâneo, um VIP, um cargo de media
+// e/ou um tier de investidor.
+enum InvestTier {
+  THEEND
+  NETHER
+  WORLD
+}
+
+enum MediaRole {
+  FAMOUS
+  MEDIA
+}
+
+enum VipTier {
+  WARPION
+  TITAN
+  MASTER
+  LEGEND
+  HERO
 }
 
 enum ItemRarity {
@@ -84,6 +108,12 @@ model User {
 
   // Staff — null significa jogador normal
   staffRole StaffRole?
+
+  // Cargos independentes do staff — null significa que não se aplica (Membro
+  // é o estado por omissão quando nenhum destes está definido).
+  investTier InvestTier?
+  mediaRole  MediaRole?
+  vipTier    VipTier?
 
   // PlayerProfile
   level        Int      @default(1)
@@ -330,6 +360,10 @@ model ShopItem {
   featured          Boolean  @default(false)
   active            Boolean  @default(true)
   createdAt         DateTime @default(now())
+
+  // Só para itens tier=vip: qual vipTier atribuir ao comprador na entrega
+  // (ver POST /internal/purchase-fulfilled). Null nos restantes tiers.
+  vipTier VipTier?
 
   cartItems  CartItem[]
   orderItems OrderItem[]
