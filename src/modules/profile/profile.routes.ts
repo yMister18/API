@@ -1,8 +1,21 @@
+import { randomInt } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../../lib/prisma";
 import { rankTitleForLevel } from "../../lib/rank";
 import { initialsFromName } from "../../lib/initials";
 import { parsePagination } from "../../lib/pagination";
+
+// Sem 0/O/1/I para evitar confusão ao escrever o código no chat do jogo.
+const LINK_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const LINK_CODE_TTL_MS = 15 * 60_000;
+
+function generateLinkCode(): string {
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += LINK_CODE_CHARS[randomInt(LINK_CODE_CHARS.length)];
+  }
+  return code;
+}
 
 export default async function profileRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
@@ -175,6 +188,41 @@ export default async function profileRoutes(fastify: FastifyInstance) {
     });
 
     return reply.send({ ok: true, count: result.count });
+  });
+
+  fastify.get("/minecraft", async (request, reply) => {
+    const user = request.currentUser!;
+    const pendingCode = await prisma.minecraftLinkCode.findFirst({
+      where: { userId: user.id, consumedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return reply.send({
+      linked: Boolean(user.minecraftUsername),
+      username: user.minecraftUsername,
+      accountType: user.minecraftAccountType,
+      pendingCode: pendingCode?.code ?? null,
+      pendingExpiresAt: pendingCode?.expiresAt.toISOString() ?? null,
+    });
+  });
+
+  // Gera um código de associação válido tanto para conta original como pirata
+  // — o jogador entra no servidor com a conta que quer associar e o próprio
+  // servidor (em modo online ou offline) é quem prova, ao aceitar a ligação,
+  // que a posse é real. O plugin reporta o tipo em POST /internal/minecraft/link.
+  fastify.post("/minecraft/code", async (request, reply) => {
+    const userId = request.currentUser!.id;
+    const expiresAt = new Date(Date.now() + LINK_CODE_TTL_MS);
+
+    await prisma.minecraftLinkCode.updateMany({
+      where: { userId, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+    const created = await prisma.minecraftLinkCode.create({
+      data: { userId, code: generateLinkCode(), expiresAt },
+    });
+
+    return reply.send({ code: created.code, expiresAt: created.expiresAt.toISOString() });
   });
 
   fastify.patch<{ Params: { id: string } }>("/notifications/:id", async (request, reply) => {

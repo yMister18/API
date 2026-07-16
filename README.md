@@ -49,7 +49,7 @@ warpion-api/
 - PostgreSQL a correr localmente (ou usa Docker — ver abaixo)
 - Uma aplicação Discord criada em https://discord.com/developers/applications
   com um redirect URI igual a `DISCORD_CALLBACK_URL`
-  (por omissão: `http://localhost:3333/auth/discord/callback`)
+  (por omissão: `https://p45n85s1-3333.uks1.devtunnels.ms/auth/discord/callback`)
 
 ### 2. Instalar dependências
 
@@ -86,8 +86,8 @@ npm run seed              # popula dados de demonstração
 npm run dev
 ```
 
-A API fica disponível em `http://localhost:3333`, com documentação Swagger
-em `http://localhost:3333/docs`.
+A API fica disponível em `https://p45n85s1-3333.uks1.devtunnels.ms`, com documentação Swagger
+em `https://p45n85s1-3333.uks1.devtunnels.ms/docs`.
 
 ### Build de produção
 

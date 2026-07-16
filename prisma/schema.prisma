@@ -96,10 +96,15 @@ enum MinecraftAccountType {
   PIRATA
 }
 
+// Hierarquia, do mais alto ao mais baixo: LEADER > SUBLEADER > OFFICER >
+// ELITE > MEMBER > RECRUIT.
 enum ClanRole {
   LEADER
+  SUBLEADER
   OFFICER
+  ELITE
   MEMBER
+  RECRUIT
 }
 
 enum ClanInviteStatus {
@@ -183,6 +188,10 @@ model Clan {
   tag          String   @unique
   description  String   @default("")
   bannerAccent String   @default("from-purple-600 to-blue-600")
+  // Caminho relativo (ex. /uploads/clans/xyz.png) para uma imagem carregada
+  // pelo líder — quando null, usa-se o gradiente bannerAccent/logo por omissão.
+  logoUrl      String?
+  bannerUrl    String?
   createdAt    DateTime @default(now())
 
   members ClanMember[]
@@ -351,15 +360,15 @@ model ForumCategory {
 }
 
 model ForumTopic {
-  id         String   @id @default(cuid())
+  id         String        @id @default(cuid())
   categoryId String
   category   ForumCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   title      String
   content    String
   authorId   String
-  author     User     @relation(fields: [authorId], references: [id])
-  pinned     Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  author     User          @relation(fields: [authorId], references: [id])
+  pinned     Boolean       @default(false)
+  createdAt  DateTime      @default(now())
 
   replies ForumReply[]
 
@@ -423,17 +432,17 @@ model TicketMessage {
 // FRONTEND-NOTE: `price` (string "€9.99") nos mocks passa a `priceCents` (Int) + `currency`.
 // O frontend deve formatar o valor. Idem para `originalPrice` -> `originalPriceCents`.
 model ShopItem {
-  id                String   @id @default(cuid())
-  tier              ShopTier
-  name              String
-  priceCents        Int
+  id                 String   @id @default(cuid())
+  tier               ShopTier
+  name               String
+  priceCents         Int
   originalPriceCents Int?
-  currency          String   @default("EUR")
-  description       String
-  perks             String[]
-  featured          Boolean  @default(false)
-  active            Boolean  @default(true)
-  createdAt         DateTime @default(now())
+  currency           String   @default("EUR")
+  description        String
+  perks              String[]
+  featured           Boolean  @default(false)
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
 
   // Só para itens tier=vip: qual vipTier atribuir ao comprador na entrega
   // (ver POST /internal/purchase-fulfilled). Null nos restantes tiers.
@@ -461,17 +470,17 @@ model CartItem {
 
 // Encomenda criada em /checkout — no MVP fica "pendente" com um checkoutUrl fictício.
 model Order {
-  id            String      @id @default(cuid())
-  userId        String
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status        OrderStatus @default(pendente)
-  totalCents    Int
-  currency      String      @default("EUR")
-  checkoutUrl   String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      OrderStatus @default(pendente)
+  totalCents  Int
+  currency    String      @default("EUR")
+  checkoutUrl String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
-  items     OrderItem[]
+  items      OrderItem[]
   deliveries PendingDelivery[]
 
   @@index([userId])
@@ -494,15 +503,15 @@ model OrderItem {
 // Fila de entregas para o plugin do servidor Minecraft consumir/confirmar
 // via POST /internal/purchase-fulfilled.
 model PendingDelivery {
-  id          String    @id @default(cuid())
-  orderId     String
-  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  itemId      String
-  item        ShopItem  @relation(fields: [itemId], references: [id])
+  id                String    @id @default(cuid())
+  orderId           String
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId            String
+  item              ShopItem  @relation(fields: [itemId], references: [id])
   minecraftUsername String?
-  delivered   Boolean   @default(false)
-  deliveredAt DateTime?
-  createdAt   DateTime  @default(now())
+  delivered         Boolean   @default(false)
+  deliveredAt       DateTime?
+  createdAt         DateTime  @default(now())
 
   @@index([orderId])
   @@index([delivered])
@@ -528,7 +537,7 @@ model NewsArticle {
 }
 
 model EventItem {
-  id          String      @id @default(cuid())
+  id          String       @id @default(cuid())
   title       String
   description String
   startsAt    DateTime
@@ -541,25 +550,25 @@ model EventItem {
 }
 
 model TeamMember {
-  id     String    @id @default(cuid())
-  name   String
-  role   StaffRole
+  id       String    @id @default(cuid())
+  name     String
+  role     StaffRole
   initials String
-  accent String
-  online Boolean   @default(false)
-  order  Int       @default(0)
+  accent   String
+  online   Boolean   @default(false)
+  order    Int       @default(0)
 
   @@map("team_members")
 }
 
 // Sincronizado do servidor Minecraft via POST /internal/sync/rankings
 model RankPlayerEntry {
-  id      String @id @default(cuid())
-  type    String // "players" | "wealth"
-  rank    Int
-  name    String
-  value   String
-  guild   String?
+  id       String   @id @default(cuid())
+  type     String // "players" | "wealth"
+  rank     Int
+  name     String
+  value    String
+  guild    String?
   syncedAt DateTime @default(now())
 
   @@index([type, rank])
@@ -567,7 +576,7 @@ model RankPlayerEntry {
 }
 
 model RankClanEntry {
-  id       String @id @default(cuid())
+  id       String   @id @default(cuid())
   rank     Int
   name     String
   tag      String

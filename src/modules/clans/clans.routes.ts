@@ -1,9 +1,81 @@
-import type { FastifyInstance } from "fastify";
+import path from "node:path";
+import { createWriteStream } from "node:fs";
+import { unlink } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import type { Clan, ClanMember, ClanRole, User } from "@prisma/client";
 
-const ROLE_ORDER: Record<ClanRole, number> = { LEADER: 0, OFFICER: 1, MEMBER: 2 };
+const UPLOADS_DIR = path.join(process.cwd(), "uploads", "clans");
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+};
+
+// Guarda o ficheiro carregado em uploads/clans e devolve o caminho relativo
+// (servido por @fastify/static em /uploads/, ver app.ts) para gravar no
+// campo logoUrl/bannerUrl do Clan. Responde diretamente e devolve `null`
+// quando a validação falha, para o handler saber que já respondeu.
+async function handleImageUpload(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+  clanId: string,
+  kind: "logo" | "banner"
+): Promise<string | null> {
+  const membership = await requireMembership(request.currentUser!.id);
+  if (!membership || membership.clanId !== clanId || membership.role !== "LEADER") {
+    reply.code(403).send({ message: "Só o líder pode alterar a imagem do clã." });
+    return null;
+  }
+
+  const file = await request.file();
+  if (!file) {
+    reply.code(400).send({ message: "Nenhum ficheiro enviado." });
+    return null;
+  }
+
+  const extension = IMAGE_EXTENSIONS[file.mimetype];
+  if (!extension) {
+    reply.code(400).send({ message: "Formato inválido — usa PNG, JPEG ou WEBP." });
+    return null;
+  }
+
+  const filename = `${clanId}-${kind}-${Date.now()}.${extension}`;
+  await pipeline(file.file, createWriteStream(path.join(UPLOADS_DIR, filename)));
+
+  const previousPath = kind === "logo" ? membership.clan.logoUrl : membership.clan.bannerUrl;
+  if (previousPath) {
+    await unlink(path.join(process.cwd(), previousPath)).catch(() => {});
+  }
+
+  const relativeUrl = `/uploads/clans/${filename}`;
+  await prisma.clan.update({
+    where: { id: clanId },
+    data: kind === "logo" ? { logoUrl: relativeUrl } : { bannerUrl: relativeUrl },
+  });
+
+  return relativeUrl;
+}
+
+// Hierarquia, do mais alto ao mais baixo (número menor = cargo mais alto).
+const ROLE_ORDER: Record<ClanRole, number> = {
+  LEADER: 0,
+  SUBLEADER: 1,
+  OFFICER: 2,
+  ELITE: 3,
+  MEMBER: 4,
+  RECRUIT: 5,
+};
+
+// OFFICER e acima (LEADER, SUBLEADER, OFFICER) podem convidar/expulsar.
+const MANAGEMENT_RANK = ROLE_ORDER.OFFICER;
+
+function isManagementRank(role: ClanRole): boolean {
+  return ROLE_ORDER[role] <= MANAGEMENT_RANK;
+}
 
 const createClanSchema = z.object({
   name: z.string().min(3).max(60),
@@ -28,7 +100,7 @@ const inviteSchema = z.object({
 });
 
 const updateMemberRoleSchema = z.object({
-  role: z.enum(["OFFICER", "MEMBER"]),
+  role: z.enum(["SUBLEADER", "OFFICER", "ELITE", "MEMBER", "RECRUIT"]),
 });
 
 const transferLeadershipSchema = z.object({
@@ -43,6 +115,8 @@ function serializeClanSummary(clan: Clan & { members: ClanMember[] }) {
     tag: clan.tag,
     description: clan.description,
     bannerAccent: clan.bannerAccent,
+    logoUrl: clan.logoUrl,
+    bannerUrl: clan.bannerUrl,
     memberCount: clan.members.length,
     leaderId: leader?.userId ?? null,
   };
@@ -55,6 +129,8 @@ function serializeClanDetail(clan: Clan & { members: (ClanMember & { user: User 
     tag: clan.tag,
     description: clan.description,
     bannerAccent: clan.bannerAccent,
+    logoUrl: clan.logoUrl,
+    bannerUrl: clan.bannerUrl,
     createdAt: clan.createdAt.toISOString(),
     members: [...clan.members]
       .sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.joinedAt.getTime() - b.joinedAt.getTime())
@@ -173,7 +249,7 @@ export default async function clanRoutes(fastify: FastifyInstance) {
       }
 
       await prisma.$transaction([
-        prisma.clanMember.create({ data: { clanId: invite.clanId, userId, role: "MEMBER" } }),
+        prisma.clanMember.create({ data: { clanId: invite.clanId, userId, role: "RECRUIT" } }),
         prisma.clanInvite.update({ where: { id: invite.id }, data: { status: "aceite" } }),
         prisma.clanInvite.updateMany({
           where: { invitedUserId: userId, status: "pendente", id: { not: invite.id } },
@@ -218,6 +294,26 @@ export default async function clanRoutes(fastify: FastifyInstance) {
     }
   );
 
+  fastify.post<{ Params: { id: string } }>(
+    "/clans/:id/logo",
+    { preHandler: fastify.authenticate },
+    async (request, reply) => {
+      const url = await handleImageUpload(request, reply, request.params.id, "logo");
+      if (url === null) return;
+      return reply.send({ logoUrl: url });
+    }
+  );
+
+  fastify.post<{ Params: { id: string } }>(
+    "/clans/:id/banner",
+    { preHandler: fastify.authenticate },
+    async (request, reply) => {
+      const url = await handleImageUpload(request, reply, request.params.id, "banner");
+      if (url === null) return;
+      return reply.send({ bannerUrl: url });
+    }
+  );
+
   fastify.delete<{ Params: { id: string } }>(
     "/clans/:id",
     { preHandler: fastify.authenticate },
@@ -227,6 +323,11 @@ export default async function clanRoutes(fastify: FastifyInstance) {
         return reply.code(403).send({ message: "Só o líder pode dissolver o clã." });
       }
 
+      await Promise.all(
+        [membership.clan.logoUrl, membership.clan.bannerUrl]
+          .filter((p): p is string => Boolean(p))
+          .map((p) => unlink(path.join(process.cwd(), p)).catch(() => {}))
+      );
       await prisma.clan.delete({ where: { id: request.params.id } });
       return reply.code(204).send();
     }
@@ -237,7 +338,7 @@ export default async function clanRoutes(fastify: FastifyInstance) {
     { preHandler: fastify.authenticate },
     async (request, reply) => {
       const membership = await requireMembership(request.currentUser!.id);
-      if (!membership || membership.clanId !== request.params.id || membership.role === "MEMBER") {
+      if (!membership || membership.clanId !== request.params.id || !isManagementRank(membership.role)) {
         return reply.code(403).send({ message: "Só o líder ou oficiais podem convidar jogadores." });
       }
 
@@ -265,7 +366,7 @@ export default async function clanRoutes(fastify: FastifyInstance) {
     { preHandler: fastify.authenticate },
     async (request, reply) => {
       const membership = await requireMembership(request.currentUser!.id);
-      if (!membership || membership.clanId !== request.params.id || membership.role === "MEMBER") {
+      if (!membership || membership.clanId !== request.params.id || !isManagementRank(membership.role)) {
         return reply.code(403).send({ message: "Só o líder ou oficiais podem cancelar convites." });
       }
 
@@ -284,7 +385,7 @@ export default async function clanRoutes(fastify: FastifyInstance) {
     { preHandler: fastify.authenticate },
     async (request, reply) => {
       const membership = await requireMembership(request.currentUser!.id);
-      if (!membership || membership.clanId !== request.params.id || membership.role === "MEMBER") {
+      if (!membership || membership.clanId !== request.params.id || !isManagementRank(membership.role)) {
         return reply.code(403).send({ message: "Só o líder ou oficiais podem expulsar membros." });
       }
 
@@ -295,8 +396,8 @@ export default async function clanRoutes(fastify: FastifyInstance) {
       if (target.role === "LEADER") {
         return reply.code(400).send({ message: "O líder não pode ser expulso." });
       }
-      if (target.role === "OFFICER" && membership.role !== "LEADER") {
-        return reply.code(403).send({ message: "Só o líder pode expulsar oficiais." });
+      if (ROLE_ORDER[membership.role] >= ROLE_ORDER[target.role]) {
+        return reply.code(403).send({ message: "Não podes expulsar alguém com um cargo igual ou superior ao teu." });
       }
 
       await prisma.clanMember.delete({ where: { userId: request.params.userId } });

@@ -1,8 +1,11 @@
+import path from "node:path";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import multipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
 import { ZodError } from "zod";
 
 import { env, corsOrigins } from "./config/env";
@@ -40,6 +43,15 @@ export function buildApp() {
 
   app.register(rateLimit, {
     global: false,
+  });
+
+  // Uploads de imagens (logo/banner de clã) — limite de 5MB por ficheiro.
+  app.register(multipart, {
+    limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  });
+  app.register(fastifyStatic, {
+    root: path.join(process.cwd(), "uploads"),
+    prefix: "/uploads/",
   });
 
   // Limita tentativas de login Discord (start + callback) contra abuso/brute-force.

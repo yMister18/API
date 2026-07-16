@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
-import type { Ticket, TicketMessage, TicketStatus } from "@prisma/client";
+import type { Ticket, TicketMessage, TicketStatus, User } from "@prisma/client";
 import { sendDiscordDM } from "../../lib/discordBot";
 import { env } from "../../config/env";
 
@@ -27,7 +27,7 @@ const patchTicketSchema = z.object({
   status: z.enum(["aberto", "em_progresso", "resolvido", "fechado"]),
 });
 
-function serializeTicket(ticket: Ticket & { messages: TicketMessage[] }) {
+function serializeTicket(ticket: Ticket & { messages: (TicketMessage & { authorUser: User | null })[] }) {
   return {
     id: ticket.id,
     subject: ticket.subject,
@@ -38,6 +38,7 @@ function serializeTicket(ticket: Ticket & { messages: TicketMessage[] }) {
       id: m.id,
       author: m.author,
       authorName: m.authorName,
+      authorAvatarUrl: m.authorUser?.avatarUrl ?? null,
       content: m.content,
       createdAt: m.createdAt.toISOString(),
     })),
@@ -48,7 +49,7 @@ export default async function ticketRoutes(fastify: FastifyInstance) {
   fastify.get("/me/tickets", { preHandler: fastify.authenticate }, async (request, reply) => {
     const tickets = await prisma.ticket.findMany({
       where: { userId: request.currentUser!.id },
-      include: { messages: { orderBy: { createdAt: "asc" } } },
+      include: { messages: { include: { authorUser: true }, orderBy: { createdAt: "asc" } } },
       orderBy: { createdAt: "desc" },
     });
     return reply.send(tickets.map(serializeTicket));
@@ -60,7 +61,7 @@ export default async function ticketRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const ticket = await prisma.ticket.findUnique({
         where: { id: request.params.id },
-        include: { messages: { orderBy: { createdAt: "asc" } } },
+        include: { messages: { include: { authorUser: true }, orderBy: { createdAt: "asc" } } },
       });
 
       if (!ticket) return reply.code(404).send({ message: "Ticket não encontrado." });
@@ -93,7 +94,7 @@ export default async function ticketRoutes(fastify: FastifyInstance) {
           },
         },
       },
-      include: { messages: true },
+      include: { messages: { include: { authorUser: true } } },
     });
 
     return reply.code(201).send(serializeTicket(ticket));
@@ -147,6 +148,7 @@ export default async function ticketRoutes(fastify: FastifyInstance) {
         id: message.id,
         author: message.author,
         authorName: message.authorName,
+        authorAvatarUrl: user.avatarUrl,
         content: message.content,
         createdAt: message.createdAt.toISOString(),
       });
@@ -182,7 +184,7 @@ export default async function ticketRoutes(fastify: FastifyInstance) {
           status: query.status ? (query.status as TicketStatus) : undefined,
           category: query.category || undefined,
         },
-        include: { messages: { orderBy: { createdAt: "asc" } }, user: true },
+        include: { messages: { include: { authorUser: true }, orderBy: { createdAt: "asc" } }, user: true },
         orderBy: { createdAt: "desc" },
       });
 

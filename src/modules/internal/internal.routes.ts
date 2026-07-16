@@ -42,6 +42,16 @@ const rankClanEntrySchema = z.object({
   power: z.string(),
 });
 
+const minecraftLinkSchema = z.object({
+  code: z.string().min(1),
+  minecraftUsername: z.string().min(1),
+  minecraftUuid: z.string().min(1).optional(),
+  // O plugin determina isto pelo modo de ligação usado pelo jogador (online =
+  // conta original, autenticada pela Mojang; offline = conta pirata). Não é
+  // escolhido pelo jogador no site, precisamente para não poder ser falsificado.
+  accountType: z.enum(["ORIGINAL", "PIRATA"]),
+});
+
 const onlineStatusSchema = z.object({
   updates: z.array(
     z.object({
@@ -152,6 +162,34 @@ export default async function internalRoutes(fastify: FastifyInstance) {
       prisma.rankClanEntry.createMany({ data: entries }),
     ]);
     return reply.send({ ok: true, count: entries.length });
+  });
+
+  // Chamado pelo plugin do servidor quando um jogador escreve o código de
+  // associação (conta pirata) no chat do jogo.
+  fastify.post("/minecraft/link", async (request, reply) => {
+    const body = minecraftLinkSchema.parse(request.body);
+
+    const linkCode = await prisma.minecraftLinkCode.findUnique({ where: { code: body.code } });
+    if (!linkCode || linkCode.consumedAt || linkCode.expiresAt < new Date()) {
+      return reply.code(404).send({ message: "Código de associação inválido ou expirado." });
+    }
+
+    const [, user] = await prisma.$transaction([
+      prisma.minecraftLinkCode.update({
+        where: { id: linkCode.id },
+        data: { consumedAt: new Date() },
+      }),
+      prisma.user.update({
+        where: { id: linkCode.userId },
+        data: {
+          minecraftUsername: body.minecraftUsername,
+          minecraftAccountType: body.accountType,
+          minecraftUuid: body.minecraftUuid ?? null,
+        },
+      }),
+    ]);
+
+    return reply.send({ ok: true, discordUsername: user.username });
   });
 
   // Consultado pelo plugin do servidor para saber a que clã cada jogador

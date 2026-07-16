@@ -12,8 +12,10 @@ interface DiscordUserResponse {
 
 function discordAvatarUrl(discordUser: DiscordUserResponse): string {
   if (discordUser.avatar) {
-    const ext = discordUser.avatar.startsWith("a_") ? "gif" : "png";
-    return `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.${ext}`;
+    // .webp funciona sempre (estático e animado); .gif dá 415 no CDN do
+    // Discord para alguns avatares animados (ex. fonte AVIF que não é
+    // representável como GIF), mesmo com o prefixo "a_".
+    return `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.webp`;
   }
   // Utilizadores no novo sistema de username (discriminator "0") usam o índice
   // baseado no snowflake do ID; contas legadas com discriminator continuam a
