@@ -10,7 +10,7 @@ declare module "fastify" {
       request: FastifyRequest,
       reply: FastifyReply
     ) => Promise<void>;
-    requireAdminStaff: (
+    requireManagerStaff: (
       request: FastifyRequest,
       reply: FastifyReply
     ) => Promise<void>;

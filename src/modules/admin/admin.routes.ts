@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
+import { parsePagination } from "../../lib/pagination";
 import {
   syncDiscordInvestTier,
   syncDiscordMediaRole,
@@ -28,9 +29,34 @@ const updateRanksSchema = z.object({
 export default async function adminRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
+  // Pesquisa de utilizadores para o painel de gestão de cargos (Cargos).
+  fastify.get("/users", { preHandler: fastify.requireManagerStaff }, async (request, reply) => {
+    const { search } = request.query as { search?: string };
+    const { page, pageSize, skip, take } = parsePagination(
+      request.query as { page?: number; pageSize?: number }
+    );
+
+    const where = search
+      ? { username: { contains: search, mode: "insensitive" as const } }
+      : {};
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        select: { id: true, username: true, avatarUrl: true, staffRole: true, discordId: true },
+        orderBy: { username: "asc" },
+        skip,
+        take,
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    return reply.send({ data: users, page, pageSize, total });
+  });
+
   fastify.patch<{ Params: { id: string } }>(
     "/users/:id/staff-role",
-    { preHandler: fastify.requireAdminStaff },
+    { preHandler: fastify.requireManagerStaff },
     async (request, reply) => {
       const body = updateStaffRoleSchema.parse(request.body);
 

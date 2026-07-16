@@ -1,8 +1,21 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { parsePagination } from "../../lib/pagination";
 import { initialsFromName } from "../../lib/initials";
 import type { EventItem } from "@prisma/client";
+
+const createNewsSchema = z.object({
+  slug: z.string().min(1).max(200),
+  title: z.string().min(1).max(300),
+  excerpt: z.string().min(1).max(500),
+  content: z.string().default(""),
+  category: z.string().min(1).max(100),
+  author: z.string().min(1).max(150),
+  coverAccent: z.string().min(1).max(100),
+});
+
+const updateNewsSchema = createNewsSchema.partial();
 
 function deriveEventStatus(event: EventItem): "ativo" | "agendado" | "terminado" {
   if (event.status) return event.status;
@@ -56,6 +69,47 @@ export default async function contentRoutes(fastify: FastifyInstance) {
       coverAccent: article.coverAccent,
     });
   });
+
+  fastify.post("/news", { preHandler: [fastify.authenticate, fastify.requireManagerStaff] }, async (request, reply) => {
+    const body = createNewsSchema.parse(request.body);
+
+    const existing = await prisma.newsArticle.findUnique({ where: { slug: body.slug } });
+    if (existing) return reply.code(409).send({ message: "Já existe uma notícia com este slug." });
+
+    const article = await prisma.newsArticle.create({ data: body });
+    return reply.code(201).send(article);
+  });
+
+  fastify.patch<{ Params: { id: string } }>(
+    "/news/:id",
+    { preHandler: [fastify.authenticate, fastify.requireManagerStaff] },
+    async (request, reply) => {
+      const body = updateNewsSchema.parse(request.body);
+
+      const article = await prisma.newsArticle.findUnique({ where: { id: request.params.id } });
+      if (!article) return reply.code(404).send({ message: "Notícia não encontrada." });
+
+      if (body.slug && body.slug !== article.slug) {
+        const existing = await prisma.newsArticle.findUnique({ where: { slug: body.slug } });
+        if (existing) return reply.code(409).send({ message: "Já existe uma notícia com este slug." });
+      }
+
+      const updated = await prisma.newsArticle.update({ where: { id: article.id }, data: body });
+      return reply.send(updated);
+    }
+  );
+
+  fastify.delete<{ Params: { id: string } }>(
+    "/news/:id",
+    { preHandler: [fastify.authenticate, fastify.requireManagerStaff] },
+    async (request, reply) => {
+      const article = await prisma.newsArticle.findUnique({ where: { id: request.params.id } });
+      if (!article) return reply.code(404).send({ message: "Notícia não encontrada." });
+
+      await prisma.newsArticle.delete({ where: { id: article.id } });
+      return reply.code(204).send();
+    }
+  );
 
   fastify.get("/events", async (_request, reply) => {
     const events = await prisma.eventItem.findMany({ orderBy: { startsAt: "asc" } });

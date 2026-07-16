@@ -8,6 +8,25 @@ const addCartSchema = z.object({
   quantity: z.number().int().min(1).max(99).default(1),
 });
 
+const SHOP_TIERS = ["vip", "cosmetic", "pet", "key", "bundle"] as const;
+const VIP_TIERS = ["WARPION", "TITAN", "MASTER", "LEGEND", "HERO"] as const;
+
+const createShopItemSchema = z.object({
+  tier: z.enum(SHOP_TIERS),
+  name: z.string().min(1).max(200),
+  priceCents: z.number().int().min(0),
+  originalPriceCents: z.number().int().min(0).nullable().optional(),
+  currency: z.string().min(1).max(10).default("EUR"),
+  description: z.string().min(1).max(1000),
+  perks: z.array(z.string().min(1)).default([]),
+  featured: z.boolean().default(false),
+  vipTier: z.enum(VIP_TIERS).nullable().optional(),
+});
+
+const updateShopItemSchema = createShopItemSchema.partial().extend({
+  active: z.boolean().optional(),
+});
+
 function serializeItem(item: ShopItem) {
   return {
     id: item.id,
@@ -31,6 +50,55 @@ export default async function shopRoutes(fastify: FastifyInstance) {
     });
     return reply.send(items.map(serializeItem));
   });
+
+  // Gestão de produtos (Owner/Developer/Manager) — inclui itens inativos e o
+  // campo `active`, ao contrário do GET público acima.
+  fastify.get(
+    "/admin/shop/items",
+    { preHandler: [fastify.authenticate, fastify.requireManagerStaff] },
+    async (_request, reply) => {
+      const items = await prisma.shopItem.findMany({ orderBy: [{ featured: "desc" }, { createdAt: "asc" }] });
+      return reply.send(items.map((item) => ({ ...serializeItem(item), active: item.active })));
+    }
+  );
+
+  fastify.post(
+    "/admin/shop/items",
+    { preHandler: [fastify.authenticate, fastify.requireManagerStaff] },
+    async (request, reply) => {
+      const body = createShopItemSchema.parse(request.body);
+      const item = await prisma.shopItem.create({ data: body });
+      return reply.code(201).send({ ...serializeItem(item), active: item.active });
+    }
+  );
+
+  fastify.patch<{ Params: { id: string } }>(
+    "/admin/shop/items/:id",
+    { preHandler: [fastify.authenticate, fastify.requireManagerStaff] },
+    async (request, reply) => {
+      const body = updateShopItemSchema.parse(request.body);
+
+      const item = await prisma.shopItem.findUnique({ where: { id: request.params.id } });
+      if (!item) return reply.code(404).send({ message: "Item não encontrado." });
+
+      const updated = await prisma.shopItem.update({ where: { id: item.id }, data: body });
+      return reply.send({ ...serializeItem(updated), active: updated.active });
+    }
+  );
+
+  // Soft-delete: encomendas passadas referenciam o item (OrderItem), por isso
+  // "apagar" só desativa — deixa de aparecer no GET /shop/items público.
+  fastify.delete<{ Params: { id: string } }>(
+    "/admin/shop/items/:id",
+    { preHandler: [fastify.authenticate, fastify.requireManagerStaff] },
+    async (request, reply) => {
+      const item = await prisma.shopItem.findUnique({ where: { id: request.params.id } });
+      if (!item) return reply.code(404).send({ message: "Item não encontrado." });
+
+      await prisma.shopItem.update({ where: { id: item.id }, data: { active: false } });
+      return reply.code(204).send();
+    }
+  );
 
   fastify.get("/me/cart", { preHandler: fastify.authenticate }, async (request, reply) => {
     const cartItems = await prisma.cartItem.findMany({
