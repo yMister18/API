@@ -154,6 +154,26 @@ export default async function internalRoutes(fastify: FastifyInstance) {
     return reply.send({ ok: true, count: entries.length });
   });
 
+  // Consultado pelo plugin do servidor para saber a que clã cada jogador
+  // pertence e aplicar tags/perks in-game — o site é a fonte de verdade.
+  fastify.get("/clans", async (_request, reply) => {
+    const clans = await prisma.clan.findMany({
+      include: { members: { include: { user: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return reply.send(
+      clans.map((clan) => ({
+        id: clan.id,
+        name: clan.name,
+        tag: clan.tag,
+        members: clan.members
+          .filter((m) => m.user.minecraftUsername)
+          .map((m) => ({ minecraftUsername: m.user.minecraftUsername, role: m.role })),
+      }))
+    );
+  });
+
   fastify.post("/sync/online-status", async (request, reply) => {
     const body = onlineStatusSchema.parse(request.body);
 

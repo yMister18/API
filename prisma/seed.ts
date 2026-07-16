@@ -96,19 +96,11 @@ async function main() {
     create: { userId: demoUser.id, achievementId: firstBlood.id, unlocked: true, unlockedAt: new Date() },
   });
 
-  // --- Atividade, inventário, stats, notificações ---
+  // --- Atividade, stats, notificações ---
   await prisma.activityEntry.createMany({
     data: [
       { userId: demoUser.id, message: "Subiu para o nível 24.", icon: "TrendingUp" },
       { userId: demoUser.id, message: "Desbloqueou a conquista Primeiro Sangue.", icon: "Trophy" },
-    ],
-  });
-
-  await prisma.inventoryItem.createMany({
-    data: [
-      { userId: demoUser.id, name: "Espada Flamejante", rarity: "epico", icon: "Sword" },
-      { userId: demoUser.id, name: "Poção de Vida", rarity: "comum", icon: "FlaskConical" },
-      { userId: demoUser.id, name: "Coroa do Dragão", rarity: "lendario", icon: "Crown" },
     ],
   });
 

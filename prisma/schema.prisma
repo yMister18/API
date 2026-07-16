@@ -47,13 +47,6 @@ enum VipTier {
   HERO
 }
 
-enum ItemRarity {
-  comum
-  raro
-  epico
-  lendario
-}
-
 enum TicketStatus {
   aberto
   em_progresso
@@ -95,16 +88,39 @@ enum OrderStatus {
   cancelado
 }
 
+// Tipo de conta Minecraft associada ao utilizador. Original é validada contra
+// a API pública da Mojang; Pirata é confirmada pelo plugin do servidor via
+// um código de associação temporário (ver MinecraftLinkCode).
+enum MinecraftAccountType {
+  ORIGINAL
+  PIRATA
+}
+
+enum ClanRole {
+  LEADER
+  OFFICER
+  MEMBER
+}
+
+enum ClanInviteStatus {
+  pendente
+  aceite
+  recusado
+  cancelado
+}
+
 // ---------------------------------------------------------------------------
 // Utilizador / Dashboard
 // ---------------------------------------------------------------------------
 
 model User {
-  id                String    @id @default(cuid())
-  discordId         String    @unique
-  username          String
-  avatarUrl         String?
-  minecraftUsername String?
+  id                   String                @id @default(cuid())
+  discordId            String                @unique
+  username             String
+  avatarUrl            String?
+  minecraftUsername    String?
+  minecraftUuid        String?
+  minecraftAccountType MinecraftAccountType?
 
   // Staff — null significa jogador normal
   staffRole StaffRole?
@@ -116,21 +132,20 @@ model User {
   vipTier    VipTier?
 
   // PlayerProfile
-  level        Int      @default(1)
-  xp           Int      @default(0)
-  xpToNextLevel Int     @default(1000)
-  coins        Int      @default(0)
-  streakDays   Int      @default(0)
-  isOnline     Boolean  @default(false)
-  lastSeenAt   DateTime?
+  level         Int       @default(1)
+  xp            Int       @default(0)
+  xpToNextLevel Int       @default(1000)
+  coins         Int       @default(0)
+  streakDays    Int       @default(0)
+  isOnline      Boolean   @default(false)
+  lastSeenAt    DateTime?
 
-  joinedAt DateTime @default(now())
+  joinedAt  DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   missions      Mission[]
   achievements  UserAchievement[]
   activity      ActivityEntry[]
-  inventory     InventoryItem[]
   notifications NotificationItem[]
   stats         Stat[]
 
@@ -146,7 +161,79 @@ model User {
   cartItems CartItem[]
   orders    Order[]
 
+  minecraftLinkCodes MinecraftLinkCode[]
+
+  clanMembership      ClanMember?
+  clanInvitesReceived ClanInvite[] @relation("ClanInviteInvitedUser")
+  clanInvitesSent     ClanInvite[] @relation("ClanInviteInvitedBy")
+
   @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Clãs
+// ---------------------------------------------------------------------------
+
+// O site é a fonte de verdade da lista de membros/cargos — o plugin do
+// servidor consulta GET /internal/clans (ver internal.routes.ts) para saber
+// a que clã cada jogador pertence e aplicar tags/perks in-game.
+model Clan {
+  id           String   @id @default(cuid())
+  name         String
+  tag          String   @unique
+  description  String   @default("")
+  bannerAccent String   @default("from-purple-600 to-blue-600")
+  createdAt    DateTime @default(now())
+
+  members ClanMember[]
+  invites ClanInvite[]
+
+  @@map("clans")
+}
+
+// userId é único: um jogador só pode pertencer a um clã de cada vez.
+model ClanMember {
+  id       String   @id @default(cuid())
+  clanId   String
+  clan     Clan     @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  userId   String   @unique
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     ClanRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  @@index([clanId])
+  @@map("clan_members")
+}
+
+model ClanInvite {
+  id            String           @id @default(cuid())
+  clanId        String
+  clan          Clan             @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  invitedUserId String
+  invitedUser   User             @relation("ClanInviteInvitedUser", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedById   String
+  invitedBy     User             @relation("ClanInviteInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+  status        ClanInviteStatus @default(pendente)
+  createdAt     DateTime         @default(now())
+
+  @@index([clanId])
+  @@index([invitedUserId])
+  @@map("clan_invites")
+}
+
+// Código temporário gerado para o jogador introduzir no plugin do servidor
+// (conta pirata), que depois confirma a associação via POST /internal/minecraft/link.
+model MinecraftLinkCode {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("minecraft_link_codes")
 }
 
 model Mission {
@@ -203,19 +290,6 @@ model ActivityEntry {
 
   @@index([userId, timestamp])
   @@map("activity_entries")
-}
-
-model InventoryItem {
-  id        String     @id @default(cuid())
-  userId    String
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name      String
-  rarity    ItemRarity
-  icon      String
-  createdAt DateTime   @default(now())
-
-  @@index([userId])
-  @@map("inventory_items")
 }
 
 // Amizade bidirecional; "online" é derivado de User.isOnline no momento da leitura

@@ -119,29 +119,6 @@ export default async function profileRoutes(fastify: FastifyInstance) {
     );
   });
 
-  fastify.get("/inventory", async (request, reply) => {
-    const { page, pageSize, skip, take } = parsePagination(
-      request.query as { page?: number; pageSize?: number }
-    );
-
-    const [items, total] = await Promise.all([
-      prisma.inventoryItem.findMany({
-        where: { userId: request.currentUser!.id },
-        orderBy: { createdAt: "desc" },
-        skip,
-        take,
-      }),
-      prisma.inventoryItem.count({ where: { userId: request.currentUser!.id } }),
-    ]);
-
-    return reply.send({
-      data: items.map((i) => ({ id: i.id, name: i.name, rarity: i.rarity, icon: i.icon })),
-      page,
-      pageSize,
-      total,
-    });
-  });
-
   fastify.get("/friends", async (request, reply) => {
     const userId = request.currentUser!.id;
     const friendships = await prisma.friendship.findMany({

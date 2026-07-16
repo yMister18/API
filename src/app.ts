@@ -13,6 +13,7 @@ import adminRoutes from "./modules/admin/admin.routes";
 import profileRoutes from "./modules/profile/profile.routes";
 import forumRoutes from "./modules/forum/forum.routes";
 import ticketRoutes from "./modules/tickets/tickets.routes";
+import clanRoutes from "./modules/clans/clans.routes";
 import shopRoutes from "./modules/shop/shop.routes";
 import contentRoutes from "./modules/content/content.routes";
 import contactRoutes from "./modules/contact/contact.routes";
@@ -91,6 +92,7 @@ export function buildApp() {
   app.register(profileRoutes, { prefix: "/me" });
   app.register(forumRoutes, { prefix: "/forum" });
   app.register(ticketRoutes);
+  app.register(clanRoutes);
   app.register(shopRoutes);
   app.register(contentRoutes);
   app.register(contactRoutes);
